@@ -1,0 +1,31 @@
+; Symbol table 
+; name a type Type.INT location 0x20000000
+; name b type Type.FLOAT location 0x20000004
+; name c type Type.FLOAT location 0x20000008
+
+.section .text
+;Current temp: 
+;IR Code: 
+FIMM.S f0, 2.5
+LA t0, 536870916
+FSW f0, 0(t0)
+LA t1, 536870916
+FLW f2, 0(t1)
+FIMM.S f1, 1.0
+FADD.S f3, f2, f1
+LA t3, 536870920
+FSW f3, 0(t3)
+LI t4, 2
+LA t5, 536870912
+SW t4, 0(t5)
+LA t6, 536870920
+FLW f4, 0(t6)
+PUTF f4
+LA t8, 536870912
+LW t10, 0(t8)
+PUTI t10
+LA t11, 536870912
+LW t13, 0(t11)
+HALT
+
+.section .strings
