@@ -1,3 +1,4 @@
+from platform import node
 import sys
 import os
 
@@ -15,6 +16,8 @@ class CodeGenerator(AbstractASTVisitor):
     self.floatRegCount = 0
     self.intTempPrefix = 't'
     self.floatTempPrefix = 'f'
+    self.numCtrlStructs = 0
+
 
   def getIntRegCount(self):
     return self.intRegCount
@@ -263,23 +266,28 @@ class CodeGenerator(AbstractASTVisitor):
 
     co = CodeObject()
 
-    if expr.lval:
-      expr = self.rvalify(expr)
-
-    co.code.extend(expr.code)
-
     if expr.type is Scope.Type.INT:
+      if expr.lval:
+        expr = self.rvalify(expr)
+
+      co.code.extend(expr.code)
       co.code.append(PutI(expr.temp))
+
     elif expr.type is Scope.Type.FLOAT:
+      if expr.lval:
+        expr = self.rvalify(expr)
+
+      co.code.extend(expr.code)
       co.code.append(PutF(expr.temp))
-    elif expr.type is Scope.Type.STRING:
-      co.code.append(PutS(expr.temp))
+
     else:
-      raise Exception("Bad type in write node")
-    
-    co.type = None
-    co.lval = False
-    co.temp = expr.temp
+      assert(expr.isVar())
+      
+      address = self.generateAddrFromVariable(expr)
+      temp = self.generateTemp(Scope.Type.INT)
+      co.code.append(La(temp, address))
+      co.code.append(PutS(temp))
+
     return co
 
   
@@ -315,9 +323,81 @@ class CodeGenerator(AbstractASTVisitor):
     '''
     NEW:
     '''
-    node.setOp(node.getReversedOp(node.getOp())) # Reverse comparison type
-    
     co = CodeObject()
+    temp = self.generateTemp(Scope.Type.INT)
+    True_lab = "condtrue_" + temp
+    Done_lab = "conddone_" + temp
+
+    if left.lval:
+      left = self.rvalify(left)
+    co.code.extend(left.code)
+    if right.lval:
+      right =  self.rvalify(right)
+    co.code.extend(right.code)
+
+    optype = str(node.getOp()).upper()
+
+
+    if left.type == Scope.Type.INT:
+
+
+      co.code.append(Li(temp, '0'))
+
+      if "!=" in optype or "NE" in optype:
+        co.code.append(Bne(left.temp, right.temp, True_lab))
+      elif "<=" in optype or "LE" in optype:  
+        co.code.append(Bgt(left.temp, right.temp, True_lab))
+      elif ">=" in optype or "GE" in optype:
+        co.code.append(Blt(left.temp, right.temp, True_lab))
+      elif "==" in optype or "EQ" in optype:
+        co.code.append(Beq(left.temp, right.temp, True_lab))
+      elif "<" in optype or "LT" in optype:
+        co.code.append(Blt(left.temp, right.temp, True_lab))
+      elif ">" in optype or "GT" in optype:
+        co.code.append(Bgt(left.temp, right.temp, True_lab))
+      else:
+        raise Exception("Bad optype in cond node")
+      
+      co.code.append(J(Done_lab))
+      co.code.append(Label(True_lab))
+      co.code.append(Li(temp, '1'))
+      co.code.append(Label(Done_lab))
+
+    elif left.type == Scope.Type.FLOAT:
+     if "==" in optype or "EQ" in optype:
+        co.code.append(Feq(left.temp, right.temp, True_lab))
+     elif "<=" in optype or "LE" in optype:  
+        co.code.append(Fle(left.temp, right.temp, True_lab))
+     elif ">=" in optype or "GE" in optype:
+        co.code.append(Fle(right.temp, left.temp, True_lab))
+     elif "!=" in optype or "NE" in optype:
+        temp2 = self.generateTemp(Scope.Type.INT)
+        True_lab = "condtrue_" + temp
+        Done_lab = "conddone_" + temp
+
+        co.code.append(Feq(left.temp, right.temp, temp2))
+        co.code.append(Li(temp, '0'))
+        co.code.append(Beq(temp2, 'x0', True_lab))
+        co.code.append(J(Done_lab))
+        co.code.append(Label(True_lab))
+        co.code.append(Li(temp, '1'))
+        co.code.append(Label(Done_lab))
+
+     elif "<" in optype or "LT" in optype:
+        co.code.append(Flt(left.temp, right.temp, True_lab))
+     elif ">" in optype or "GT" in optype:
+        co.code.append(Flt(right.temp, left.temp, True_lab))
+
+     else:
+        raise Exception("Bad optype in cond node")
+     
+    else:
+      raise Exception("Bad type in cond node")
+    
+    co.temp = temp
+    co.lval = False 
+    co.type = Scope.Type.INT
+
     return co
 
 
@@ -332,9 +412,24 @@ class CodeGenerator(AbstractASTVisitor):
     
     co = CodeObject()
     
+    else_lab = self._generateElseLabel(labelnum)
+    done_lab = self._generateDoneLabel(labelnum)
+
+    co.code.extend(cond.code)
+
+    if elist is None:
+      co.code.append(Beq(cond.temp, "x0", done_lab))
+      co.code.extend(tlist.code)
+      co.code.append(Label(done_lab))
+    else:
+      co.code.append(Beq(cond.temp, "x0", else_lab))
+      co.code.extend(tlist.code)
+      co.code.append(J(done_lab))
+      co.code.append(Label(else_lab))
+      co.code.extend(elist.code)
+      co.code.append(Label(done_lab))
+
     return co
-
-
 
   def postprocessWhileNode(self, node: WhileNode, cond: CodeObject, wlist:
   CodeObject) -> CodeObject:
@@ -344,6 +439,16 @@ class CodeGenerator(AbstractASTVisitor):
     self._incrnumCtrlStruct()
     labelnum = self._getnumCtrlStruct()
     co = CodeObject()
+
+    loop_lab = self._generateLoopLabel(labelnum)
+    done_lab = self._generateDoneLabel(labelnum)
+
+    co.code.append(Label(loop_lab))
+    co.code.extend(cond.code)
+    co.code.append(Beq(cond.temp, "x0", done_lab))
+    co.code.extend(wlist.code)
+    co.code.append(J(loop_lab))
+    co.code.append(Label(done_lab))
 
     return co
 
@@ -401,5 +506,21 @@ class CodeGenerator(AbstractASTVisitor):
     
 
 
+  def _incrnumCtrlStruct(self):
+    self.numCtrlStructs += 1
 
+  def _getnumCtrlStruct(self) -> int:
+    return self.numCtrlStructs
+  
+  def _generateThenLabel(self, num: int) -> str:
+    return "then_"+str(num)
+
+  def _generateElseLabel(self, num: int) -> str:
+    return "else_"+str(num)
+
+  def _generateLoopLabel(self, num: int) -> str:
+    return "loop_"+str(num)
+
+  def _generateDoneLabel(self, num: int) -> str:
+    return "out_"+str(num)
 
