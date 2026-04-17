@@ -1,7 +1,11 @@
 Using default machine configuration with 256 registers
 Compute GCD(x, y) using Euclid's algorithm 
-Enter x: Enter y: 3
-24
+Enter x: Enter y: 12
+83
+11
+12
+1
+11
 0
-3
-GCD(x, y) = 3
+1
+GCD(x, y) = 1

@@ -320,86 +320,84 @@ class CodeGenerator(AbstractASTVisitor):
 
 
   def postprocessCondNode(self, node: CondNode, left: CodeObject, right: CodeObject) -> CodeObject:
-    '''
-    NEW:
-    '''
-    co = CodeObject()
-    temp = self.generateTemp(Scope.Type.INT)
-    True_lab = "condtrue_" + temp
-    Done_lab = "conddone_" + temp
 
-    if left.lval:
-      left = self.rvalify(left)
-    co.code.extend(left.code)
-    if right.lval:
-      right =  self.rvalify(right)
-    co.code.extend(right.code)
+      co = CodeObject()
+      temp = self.generateTemp(Scope.Type.INT)
+      True_lab = "condtrue_" + temp
+      Done_lab = "conddone_" + temp
 
-    optype = str(node.getOp()).upper()
+      if left.lval:
+          left = self.rvalify(left)
+      co.code.extend(left.code)
+      if right.lval:
+          right = self.rvalify(right)
+      co.code.extend(right.code)
 
+      optype = str(node.getOp()).upper()
 
-    if left.type == Scope.Type.INT:
+      if left.type == Scope.Type.INT:
 
+          co.code.append(Li(temp, '0'))
 
-      co.code.append(Li(temp, '0'))
+          if "!=" in optype or "NE" in optype:
+              co.code.append(Bne(left.temp, right.temp, True_lab))
+          elif "<=" in optype or "LE" in optype:
+              co.code.append(Bgt(left.temp, right.temp, True_lab))
+          elif ">=" in optype or "GE" in optype:
+              co.code.append(Blt(left.temp, right.temp, True_lab))
+          elif "==" in optype or "EQ" in optype:
+              co.code.append(Beq(left.temp, right.temp, True_lab))
+          elif "<" in optype or "LT" in optype:
+              co.code.append(Blt(left.temp, right.temp, True_lab))
+          elif ">" in optype or "GT" in optype:
+              co.code.append(Bgt(left.temp, right.temp, True_lab))
+          else:
+              raise Exception("Bad optype in cond node")
 
-      if "!=" in optype or "NE" in optype:
-        co.code.append(Bne(left.temp, right.temp, True_lab))
-      elif "<=" in optype or "LE" in optype:  
-        co.code.append(Bgt(left.temp, right.temp, True_lab))
-      elif ">=" in optype or "GE" in optype:
-        co.code.append(Blt(left.temp, right.temp, True_lab))
-      elif "==" in optype or "EQ" in optype:
-        co.code.append(Beq(left.temp, right.temp, True_lab))
-      elif "<" in optype or "LT" in optype:
-        co.code.append(Blt(left.temp, right.temp, True_lab))
-      elif ">" in optype or "GT" in optype:
-        co.code.append(Bgt(left.temp, right.temp, True_lab))
+          co.code.append(J(Done_lab))
+          co.code.append(Label(True_lab))
+          co.code.append(Li(temp, '1'))
+          co.code.append(Label(Done_lab))
+
+      elif left.type == Scope.Type.FLOAT:
+
+          co.code.append(Li(temp, '0'))
+
+          if "==" in optype or "EQ" in optype:
+              co.code.append(Feq(left.temp, right.temp, temp))
+              co.code.append(Bne(temp, 'x0', True_lab))
+          elif "<=" in optype or "LE" in optype:
+              co.code.append(Fle(left.temp, right.temp, temp))
+              co.code.append(Bne(temp, 'x0', True_lab))
+          elif ">=" in optype or "GE" in optype:
+              co.code.append(Fle(right.temp, left.temp, temp))
+              co.code.append(Bne(temp, 'x0', True_lab))
+          elif "!=" in optype or "NE" in optype:
+              temp2 = self.generateTemp(Scope.Type.INT)
+              co.code.append(Feq(left.temp, right.temp, temp2))
+              co.code.append(Beq(temp2, 'x0', True_lab))
+          elif "<" in optype or "LT" in optype:
+              co.code.append(Flt(left.temp, right.temp, temp))
+              co.code.append(Bne(temp, 'x0', True_lab))
+          elif ">" in optype or "GT" in optype:
+              co.code.append(Flt(right.temp, left.temp, temp))
+              co.code.append(Bne(temp, 'x0', True_lab))
+          else:
+              raise Exception("Bad optype in cond node")
+
+          co.code.append(J(Done_lab))
+          co.code.append(Label(True_lab))
+          co.code.append(Li(temp, '1'))
+          co.code.append(Label(Done_lab))
+
       else:
-        raise Exception("Bad optype in cond node")
-      
-      co.code.append(J(Done_lab))
-      co.code.append(Label(True_lab))
-      co.code.append(Li(temp, '1'))
-      co.code.append(Label(Done_lab))
+          raise Exception("Bad type in cond node")
 
-    elif left.type == Scope.Type.FLOAT:
-     if "==" in optype or "EQ" in optype:
-        co.code.append(Feq(left.temp, right.temp, True_lab))
-     elif "<=" in optype or "LE" in optype:  
-        co.code.append(Fle(left.temp, right.temp, True_lab))
-     elif ">=" in optype or "GE" in optype:
-        co.code.append(Fle(right.temp, left.temp, True_lab))
-     elif "!=" in optype or "NE" in optype:
-        temp2 = self.generateTemp(Scope.Type.INT)
-        True_lab = "condtrue_" + temp
-        Done_lab = "conddone_" + temp
+      co.temp = temp
+      co.lval = False
+      co.type = Scope.Type.INT
 
-        co.code.append(Feq(left.temp, right.temp, temp2))
-        co.code.append(Li(temp, '0'))
-        co.code.append(Beq(temp2, 'x0', True_lab))
-        co.code.append(J(Done_lab))
-        co.code.append(Label(True_lab))
-        co.code.append(Li(temp, '1'))
-        co.code.append(Label(Done_lab))
-
-     elif "<" in optype or "LT" in optype:
-        co.code.append(Flt(left.temp, right.temp, True_lab))
-     elif ">" in optype or "GT" in optype:
-        co.code.append(Flt(right.temp, left.temp, True_lab))
-
-     else:
-        raise Exception("Bad optype in cond node")
-     
-    else:
-      raise Exception("Bad type in cond node")
-    
-    co.temp = temp
-    co.lval = False 
-    co.type = Scope.Type.INT
-
-    return co
-
+      return co
 
 
 
